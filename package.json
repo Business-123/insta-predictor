@@ -1,0 +1,15 @@
+{
+  "name": "predict-virtuals-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Predict Virtuals static site + Payment Hub token purchases (ported from Phantom Cards)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}
