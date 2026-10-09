@@ -46,7 +46,7 @@ function createApp({ hub, store, verifyIdToken, siteDir = path.join(__dirname, '
 
   function serveStatic(req, res, pathname) {
     let rel = decodeURIComponent(pathname);
-    if (rel === '/') rel = '/index.html';
+    if (rel === '/' || rel === '/index' || rel === '/index.html') rel = '/login.html'; // no landing page: the site opens on sign-in
     else if (!path.extname(rel)) rel = `${rel.replace(/\/+$/, '')}.html`; // /plans -> /plans.html
     const file = path.normalize(path.join(siteDir, rel));
     if (!file.startsWith(siteDir + path.sep)) { res.writeHead(403); return res.end('Forbidden'); }
