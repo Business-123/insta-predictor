@@ -1,48 +1,55 @@
-# Payment Hub for Predict Virtuals
+# Predict Virtuals: accounts and token purchases
 
-Ported from Phantom Cards. Customers pick a plan on `/plans`, land on `/deposit?plan=gold`,
-pay at the hub checkout, and the tokens are added to `users/{uid}.tokenBalance`.
+Visitors land on the sign-in page, create an account, pick a plan on `/plans`, pay at the Payment Hub
+checkout from `/deposit?plan=gold`, and the tokens are added to their balance.
+
+Accounts, sign-in sessions and payments are kept by this server in one JSON file (the same approach
+as the Phantom Cards site). There is no Firebase or any other outside database or sign-in service.
 
 See **DEPLOY.md** for Railway + GitHub hosting.
 
 ## Run it
 ```
-npm install
 cp .env.example .env     # fill in the values
 npm start                # serves the site and the /api routes on :3000
-npm test                 # 8 tests against a fake hub, no real money or Firebase needed
+npm test                 # 18 tests: accounts, sessions, payments (fake hub, no real money)
 ```
+There is nothing to `npm install`: the app has no dependencies.
 
-## Setup checklist
-1. **Hub credentials**: put `HUB_BASE_URL`, `HUB_API_KEY`, `HUB_API_SECRET` in `.env`.
-2. **Register the webhook** with the hub: `https://YOUR-DOMAIN/api/webhooks/hub`
-   (the hub signs it with your secret in `x-hub-signature`; unsigned or wrongly signed calls get 401).
-3. **Firebase service account**: set `FIREBASE_SERVICE_ACCOUNT` (needed to verify sign-ins and add tokens).
-4. **Set `APP_BASE_URL`** to your real https address.
-5. **Firestore rules**: payments are stored in the `hubPayments` collection, written only by the
-   server (Admin SDK). Make sure browsers cannot touch it:
-   ```
-   match /hubPayments/{id} { allow read, write: if false; }
-   ```
+## Accounts
+| Route | What it does |
+|---|---|
+| `POST /api/auth/signup` | Creates the account (name, email, optional username, SportyBet number, password) and signs the person in. |
+| `POST /api/auth/login` | Checks email + password. "Keep me signed in" lasts 30 days, otherwise 1 day. |
+| `POST /api/auth/logout` | Ends the session on the server. |
+| `GET /api/auth/me` | The signed-in user and token balance (or `null`). |
+
+- Passwords are stored only as salted scrypt hashes; session cookies are `HttpOnly`, `SameSite=Lax`
+  (and `Secure` on https) and only a hash of each session token is stored.
+- Sign-in attempts are limited (8 per 15 minutes per address + email) and sign-ups (10 per hour per address).
+- Token balances can only change on the server, through a confirmed payment. Browsers cannot edit them.
+- There is no email service, so **Forgot password** tells people to contact support. To change a
+  password or suspend someone, edit their record in the data file (`"banned": true` suspends them).
 
 ## How a purchase flows
 | Step | What happens |
 |---|---|
-| Buy on `/deposit` | Browser sends the plan name and the user's Firebase ID token to `POST /api/deposit/initialize`. The server looks up the price and token count itself, saves a `hubPayments` record, asks the hub for a checkout and returns its URL. |
+| Buy on `/deposit` | Browser sends the plan name (its session cookie identifies the user) to `POST /api/deposit/initialize`. The server looks up the price and token count itself, saves a payment record, asks the hub for a checkout and returns its URL. |
 | Customer pays | At the hub's checkout. |
 | Webhook (primary) | Hub calls `POST /api/webhooks/hub`. Signature, amount, currency and user are all checked, then tokens are added. |
 | Return (backup) | Hub sends the browser to `/api/payment/return`. The server asks the hub directly to verify, then redirects to `/deposit?payment=success`. |
-| Safety | Crediting is one atomic Firestore transaction: a payment can only ever credit once, however many of the above fire. |
+| Safety | Crediting happens in one step inside the server: a payment can only ever credit once, however many of the above fire. |
 
-Plans (edit in `lib/payments.js`; the deposit page's display copy is in `www.predictvirtuals.com/deposit.html`):
-Gold GHS 300 → 1,000 tokens, Platinum GHS 500 → 2,000, Diamond GHS 1000 → 5,000.
+Plans (edit in `lib/payments.js`; the pages' display copy is in `www.predictvirtuals.com/plans.html`
+and `deposit.js`): Gold GHS 300 → 1,000 tokens, Platinum GHS 500 → 2,000, Diamond GHS 1000 → 5,000.
+
+## The data file
+`DATA_FILE` (default `data/predict-virtuals.json`) holds `users`, `sessions` and `payments`. It is
+rewritten after every change (temp file + rename, so it is never half-written). **Back it up**: it is
+your customer list and your payment records. It suits one server and a modest number of users; if you
+outgrow it, the methods in `lib/store.js` are the only place that touches storage.
 
 ## Notes
-- This export contained only the front end. The routes `/api/support/*` and `/api/auth/ban-status`
-  that the pages call are not in it and are not implemented here. If your live site already has those
-  routes (a Next.js app), keep it and add `lib/hub.js` + `lib/payments.js` there instead; they have no
-  framework dependency. Routes to mount are listed at the top of `server.js`.
-- The users' own sign-up code writes `tokenBalance: 0` from the browser, so your Firestore rules should
-  stop clients from changing `tokenBalance` and `role` on their own profile. Otherwise anyone can give
-  themselves tokens regardless of this payment flow.
-- `users.paymentStatus` (set to `pending` at sign-up) is left untouched; I could not see what uses it.
+- `/predict` (the prediction tool the pages link to after payment) is not part of this project.
+- The old support chat and partner/staff screens were Firebase-based and are gone. If `SUPPORT_URL` is
+  set, the support button opens that link instead.

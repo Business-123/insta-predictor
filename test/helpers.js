@@ -1,31 +1,15 @@
 'use strict';
 const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const crypto = require('node:crypto');
 const { createHub, hubSignature } = require('../lib/hub');
+const { createStore } = require('../lib/store');
 const { createApp } = require('../server');
 
 const SECRET = 'test-hub-secret';
 const KEY = 'test-hub-key';
-
-// In-memory stand-in for lib/firebase.js with the same atomic/idempotent credit semantics.
-function memoryStore(users = {}) {
-  const payments = new Map();
-  return {
-    users, payments,
-    async createPayment(p) { payments.set(p.id, { ...p }); },
-    async getPayment(id) { return payments.has(id) ? { ...payments.get(id) } : null; },
-    async findByHubReference(ref) { for (const p of payments.values()) if (p.hubReference === ref) return { ...p }; return null; },
-    async updatePayment(id, patch) { Object.assign(payments.get(id), patch); },
-    async creditPayment(id, at) {
-      const p = payments.get(id);
-      if (p.creditedAt) return 'ALREADY_CREDITED';
-      const u = users[p.userId];
-      if (!u) { Object.assign(p, { status: 'PAID_UNFULFILLED', updatedAt: at }); return 'NO_PROFILE'; }
-      u.tokenBalance += p.tokens; Object.assign(p, { status: 'SUCCESS', creditedAt: at, updatedAt: at });
-      return 'CREDITED';
-    },
-  };
-}
 
 // A tiny fake Payment Hub that enforces the real auth contract (x-api-key + HMAC x-signature).
 async function fakeHub() {
@@ -49,28 +33,38 @@ async function fakeHub() {
   return { state, url: `http://127.0.0.1:${server.address().port}`, close: () => new Promise(r => server.close(r)) };
 }
 
-async function boot(t, { users = { u1: { tokenBalance: 50 } } } = {}) {
+// Boots the whole app against a real store in a temp folder. Pass `dir` to reuse a data folder (restart tests).
+async function boot(t, { dir, appBaseUrl = 'https://pv.test', supportUrl = '' } = {}) {
   const hubServer = await fakeHub();
-  const store = memoryStore(users);
+  const dataDir = dir || fs.mkdtempSync(path.join(os.tmpdir(), 'pv-test-'));
+  const file = path.join(dataDir, 'data.json');
+  const store = createStore({ file });
   const hub = createHub({ baseUrl: hubServer.url, apiKey: KEY, apiSecret: SECRET });
-  const verifyIdToken = async token => { if (token === 'token-u1') return { uid: 'u1', email: 'u1@example.com' }; if (token === 'token-u2') return { uid: 'u2', email: 'u2@example.com' }; throw new Error('bad token'); };
-  const handler = createApp({ hub, store, verifyIdToken, appBaseUrl: 'https://pv.test' });
+  const handler = createApp({ hub, store, appBaseUrl, supportUrl });
   const app = http.createServer(handler);
   await new Promise(r => app.listen(0, '127.0.0.1', r));
-  t.after(async () => { await new Promise(r => app.close(r)); await hubServer.close(); });
+  t.after(async () => { await new Promise(r => app.close(r)); await hubServer.close(); if (!dir) fs.rmSync(dataDir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${app.address().port}`;
-  const request = async (path, { method = 'GET', body, headers = {}, raw } = {}) => {
-    const res = await fetch(base + path, { method, redirect: 'manual', headers: { ...(body !== undefined || raw ? { 'content-type': 'application/json' } : {}), ...headers }, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
+  const request = async (urlPath, { method = 'GET', body, headers = {}, raw, cookie } = {}) => {
+    const res = await fetch(base + urlPath, { method, redirect: 'manual', headers: { ...(body !== undefined || raw ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}), ...headers }, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
     const text = await res.text(); let data = null; try { data = JSON.parse(text); } catch {}
-    return { status: res.status, data, text, location: res.headers.get('location') };
+    const setCookie = res.headers.get('set-cookie');
+    return { status: res.status, data, text, location: res.headers.get('location'), setCookie, cookie: setCookie ? setCookie.split(';')[0] : null, headers: res.headers };
   };
-  const buy = (plan = 'gold', token = 'token-u1') => request('/api/deposit/initialize', { method: 'POST', body: { plan }, headers: { authorization: `Bearer ${token}` } });
+  // Creates an account through the real sign-up route and returns what tests need: { id, email, cookie }.
+  const signup = async (email = 'u1@example.com', extra = {}) => {
+    const res = await request('/api/auth/signup', { method: 'POST', body: { name: 'Test User', email, momo: '0541234567', password: 'secret123', confirmPassword: 'secret123', ...extra } });
+    if (res.status !== 201) throw new Error(`signup failed: ${res.status} ${res.text}`);
+    return { id: res.data.user.id, email, cookie: res.cookie };
+  };
+  const balance = async id => (await store.findUserById(id))?.tokenBalance;
+  const buy = (cookie, plan = 'gold') => request('/api/deposit/initialize', { method: 'POST', body: { plan }, cookie });
   // A webhook exactly as the hub signs it.
   const webhook = (event, { sign = true } = {}) => {
     const raw = JSON.stringify(event);
-    return request('/api/webhooks/hub', { method: 'POST', raw, headers: sign ? { 'x-hub-signature': hubSignature(SECRET, raw) } : { 'x-hub-signature': 'deadbeef' } });
+    return request('/api/webhooks/hub', { method: 'POST', raw, headers: { 'x-hub-signature': sign ? hubSignature(SECRET, raw) : 'deadbeef' } });
   };
-  return { base, request, buy, webhook, store, hubServer };
+  return { base, request, signup, balance, buy, webhook, store, hubServer, dataDir, file };
 }
 
 module.exports = { boot, SECRET, KEY, crypto };
