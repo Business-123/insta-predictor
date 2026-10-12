@@ -33,10 +33,16 @@
     if (foot) { foot.href = c.supportUrl; foot.classList.remove('hidden'); }
   }).catch(function () {});
 
+  // Keep the floating support button out of the way while someone is typing in a field.
+  document.addEventListener('focusin', function (e) { var fab = $('#support-fab'); if (fab && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) fab.style.visibility = 'hidden'; });
+  document.addEventListener('focusout', function () { var fab = $('#support-fab'); if (fab) fab.style.visibility = ''; });
+
   function showError(message) { var p = $('#form-error'); if (!p) return; p.textContent = message || ''; p.classList.toggle('hidden', !message); }
   function bindPasswordToggles(form) {
     var show = false;
     form.querySelectorAll('[data-toggle-password]').forEach(function (btn) {
+      // Pressing the eye must not pull focus out of the password field (that closes the phone keyboard).
+      btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
       btn.addEventListener('click', function () {
         show = !show;
         form.querySelectorAll('input[name=password], input[name=confirmPassword]').forEach(function (i) { i.type = show ? 'text' : 'password'; });

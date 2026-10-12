@@ -39,6 +39,7 @@ if `DATA_FILE` is not set.
 | `HUB_API_KEY` | issued by the hub for this merchant |
 | `HUB_API_SECRET` | issued by the hub for this merchant |
 | `PAYMENT_CURRENCY` | `GHS` |
+| `ADMIN_PIN` | exactly 8 digits that unlock `/admin`, e.g. `48271936`. Pick something random. Changing it signs every admin out. |
 | `SUPPORT_URL` | optional: a WhatsApp / Telegram / web link for the support button |
 
 `PORT` is set by Railway; leave it alone. The old `FIREBASE_SERVICE_ACCOUNT` variable is no longer

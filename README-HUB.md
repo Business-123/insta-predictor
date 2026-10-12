@@ -12,7 +12,7 @@ See **DEPLOY.md** for Railway + GitHub hosting.
 ```
 cp .env.example .env     # fill in the values
 npm start                # serves the site and the /api routes on :3000
-npm test                 # 18 tests: accounts, sessions, payments (fake hub, no real money)
+npm test                 # 32 tests: accounts, sessions, payments (fake hub, no real money)
 ```
 There is nothing to `npm install`: the app has no dependencies.
 
@@ -28,8 +28,25 @@ There is nothing to `npm install`: the app has no dependencies.
   (and `Secure` on https) and only a hash of each session token is stored.
 - Sign-in attempts are limited (8 per 15 minutes per address + email) and sign-ups (10 per hour per address).
 - Token balances can only change on the server, through a confirmed payment. Browsers cannot edit them.
-- There is no email service, so **Forgot password** tells people to contact support. To change a
-  password or suspend someone, edit their record in the data file (`"banned": true` suspends them).
+- There is no email service, so **Forgot password** tells people to contact support. Support can reset a
+  password or suspend someone from the admin portal (`/admin`).
+
+## Admin portal (`/admin`)
+Open `https://<your-domain>/admin` and enter the 8-digit PIN from the `ADMIN_PIN` variable. That's the only sign-in:
+no admin account or password. If `ADMIN_PIN` is missing or isn't exactly 8 digits, the portal is disabled.
+
+- A correct PIN gives a signed cookie that lasts 8 hours. **Changing `ADMIN_PIN` signs every admin out.**
+- Wrong guesses are limited to 5 per 15 minutes per address, and 30 per hour across the whole site.
+- Use a random PIN (not a birthday or `12345678`). Only someone who knows it can reach the data.
+
+| Tab | What you can do |
+|---|---|
+| Overview | Users, revenue, tokens sold, pending payments, and payments that need review. |
+| Users | Search; **adjust tokens** (add or remove, with a required reason); **reset a password** (signs them out everywhere); **suspend / restore** an account. |
+| Payments | Every checkout with its status; filter by status or search by email / reference. |
+| Activity log | Who did what, when (token changes, suspensions, password resets). Stored in the data file. |
+
+The admin API lives under `/api/admin/*` and returns 401 to anyone without a valid PIN session.
 
 ## How a purchase flows
 | Step | What happens |

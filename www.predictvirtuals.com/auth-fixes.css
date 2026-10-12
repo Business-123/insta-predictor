@@ -1,0 +1,25 @@
+/* Sign-in / create-account: fixes for fields that sometimes don't take a tap or focus. */
+
+/* Large blur() filters and backdrop-filter are very heavy on phones. While they repaint, taps can be dropped,
+   and inputs inside a backdrop-filter element are a known cause of fields not focusing (WebKit/Safari). The glows
+   below are plain radial gradients: the same look with no filter. */
+.pv-glow { position: absolute; z-index: -10; pointer-events: none; border-radius: 9999px; }
+.pv-glow-a { top: -8rem; left: 25%; width: 560px; height: 560px; margin-left: -140px; background: radial-gradient(closest-side, rgba(132,204,22,.16), transparent); }
+.pv-glow-b { top: 10rem; right: -90px; width: 520px; height: 520px; background: radial-gradient(closest-side, rgba(8,145,178,.16), transparent); }
+#login-form, #signup-form { background-color: rgba(9,9,11,.85); }
+
+/* Tapping a field should only ever focus it: no double-tap zoom, no grey tap flash. */
+html { -webkit-tap-highlight-color: transparent; }
+#login-form input, #signup-form input,
+#login-form button, #signup-form button,
+#login-form label, #signup-form label { touch-action: manipulation; }
+
+@media (pointer: coarse) {
+  /* Below 16px, iPhones zoom the page in when a field is tapped, which looks like the tap "didn't take". */
+  #login-form input, #signup-form input { font-size: 16px; }
+  /* The faint scanline layer covers the whole screen; it adds nothing on a phone. */
+  .bg-scanlines { display: none; }
+}
+
+/* The support button's pulse ring grows past the button: it must never catch taps meant for the form. */
+#support-fab span { pointer-events: none; }

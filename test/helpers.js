@@ -34,13 +34,13 @@ async function fakeHub() {
 }
 
 // Boots the whole app against a real store in a temp folder. Pass `dir` to reuse a data folder (restart tests).
-async function boot(t, { dir, appBaseUrl = 'https://pv.test', supportUrl = '' } = {}) {
+async function boot(t, { dir, appBaseUrl = 'https://pv.test', supportUrl = '', adminPin = '' } = {}) {
   const hubServer = await fakeHub();
   const dataDir = dir || fs.mkdtempSync(path.join(os.tmpdir(), 'pv-test-'));
   const file = path.join(dataDir, 'data.json');
   const store = createStore({ file });
   const hub = createHub({ baseUrl: hubServer.url, apiKey: KEY, apiSecret: SECRET });
-  const handler = createApp({ hub, store, appBaseUrl, supportUrl });
+  const handler = createApp({ hub, store, appBaseUrl, supportUrl, adminPin });
   const app = http.createServer(handler);
   await new Promise(r => app.listen(0, '127.0.0.1', r));
   t.after(async () => { await new Promise(r => app.close(r)); await hubServer.close(); if (!dir) fs.rmSync(dataDir, { recursive: true, force: true }); });
